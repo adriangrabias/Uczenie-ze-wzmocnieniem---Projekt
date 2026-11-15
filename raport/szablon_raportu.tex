@@ -1,0 +1,276 @@
+\documentclass[12pt]{article}
+\input{article_style.tex}
+
+\title{Raport projektowy\\Uczenie się ze wzmocnieniem}
+\author{Adrian Grabias}
+\date{2026/2027}
+
+\begin{document}
+\maketitle
+\tableofcontents
+\newpage
+
+\section{Informacje podstawowe}
+
+\begin{center}
+\begin{tabular}{p{0.34\textwidth}p{0.56\textwidth}}
+\toprule
+Element & Informacja \\
+\midrule
+Imię i nazwisko & Adrian Grabias \\
+Numer albumu & 179497 \\
+Kierunek/specjalność & Informatyka - Sztuczna Inteligencja \\
+Tytuł projektu & Nawigacja drona w siatce 2D \\
+Link do repozytorium & \url{https://github.com/adriangrabias/Uczenie-ze-wzmocnieniem---Projekt} \\
+Data oddania & TODO: \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\section{Temat i cel projektu}
+
+\subsection{Opis problemu}
+Problem polega na optymalnej nawigacji autonomicznego drona transportowego w dwuwymiarowej przestrzeni dyskretnej. Zadaniem drona jest odebranie ładunku z punktu odbioru i bezpieczne dostarczenie go do wyznaczonego punktu docelowego.
+Środowisko jest niejednorodne - występują w nim strefy silnego wiatru, w których przemieszczanie się jest bardziej kosztowne, oraz stacje ładowania pozwalające na uzupełnienie poziomu baterii. Kluczową trudnością problemu jest zarządzanie ograniczonymi zasobami energii. Po podniesieniu ładunku 
+masa drona rośnie, co sprawia, że zaczyna on zużywać dwukrotnie więcej energii.
+
+
+\subsection{Cel agenta}
+
+Głównym celem agenta jest pomyślne dostarczenie ładunku do punktu docelowego bez doprowadzenia do całkowitego rozładowania baterii w trakcie lotu. Działanie agenta uznaje się za poprawne i skuteczne, gdy potrafi on znaleźć optymalną ścieżkę i harmonogram działań, zminimalizować zużycie energii (np. poprzez unikanie stref silnego wiatru) oraz efektywnie korzystać ze stacji ładowania, aby zapewnić sobie wystarczający poziom energii na całej trasie.
+
+\subsection{Uzasadnienie zastosowania uczenia się ze wzmocnieniem}
+Problem ten dobrze wpisuje się w paradygmat uczenia się ze wzmocnieniem (RL), co można uzasadnić w następujący sposób:
+
+\begin{itemize}
+    \item Dron w każdym kroku musi podejmować decyzje, które mają wpływ na jego przyszły stan i możliwość osiągnięcia celu. W związku z tym, uczenie się ze wzmocnieniem jest odpowiednie do modelowania tego typu problemów decyzyjnych,
+    \item Ruch agenta bezpośrednio zmienia jego położenie, a każdy ruch
+    zmniejsza poziom baterii, co wpływa na jego zdolność do dalszego poruszania się. W związku z tym, decyzje agenta mają konsekwencje w dłuższej perspektywie czasowej,
+    \item Skupienie się wyłącznie na natychmiastowej nagrodzie (np. jak najszybszym dotarciu do paczki lub zminimalizowaniu kosztu pojedynczego kroku) może prowadzić do porażki. Agent musi potrafić "poświęcić" krótkoterminową optymalność ścieżki (np. oddalając się od celu, by dotrzeć do stacji ładowania), aby zapewnić sobie wystarczający zapas energii na ukończenie całej misji ze zwiększonym obciążeniem,
+    \item Kombinacja wielu zmiennych stanu (pozycja, poziom baterii,
+    posiadanie ładunku) oraz ograniczeń (ograniczony poziom energii, konieczność ładowania) sprawia, że problem jest złożony i wymaga adaptacyjnego podejścia do nauki optymalnej strategii.
+\end{itemize}
+
+\section{Formalizacja problemu RL/MDP}
+
+\subsection{Agent i środowisko}
+Agentem jest autonomiczny dron transportowy kontrolowany przez uczący się algorytm. Agent posiada swój wewnętrzny stan składający się z aktualnych współrzędnych, poziomu naładowania baterii oraz informacji o tym, czy aktualnie posiada ładunek.
+
+Środowisko jest reprezentowane jako dyskretna siatka $N \times N$. W jej skład wchodzą pola zwykłe, strefy wiatru, stacje ładowania, pole z paczką oraz pole docelowe. Środowisko jest w pełni obserwowalne dla agenta.
+
+
+\subsection{Stan lub obserwacja}
+
+W projekcie zakładamy pełną obserwowalność środowiska, co oznacza, że agent ma dostęp do pełnej informacji o aktualnym stanie środowiska w każdym kroku. 
+
+\begin{center}
+\begin{tabular}{p{0.30\textwidth}p{0.60\textwidth}}
+\toprule
+Składowa stanu/obserwacji & Znaczenie \\
+\midrule
+Pozycja drona $(x, y)$ & Współrzędne określające położenie drona na siatce, $x, y \in \{0, \dots, N-1\}$ \\
+Poziom baterii $B$ & Dyskretny poziom naładowania, $B \in \{0, 1, \dots, B_{\max}\}$ \\
+Status ładunku $L$ & Informacja binarna 0 - ładunek niepodniesiony, 1 - ładunek podniesiony \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Dostarczenie ładunku kończy epizod, dlatego nie jest ono osobną wartością statusu ładunku. Stan początkowy to $(x_0, y_0, B_{\max}, 0)$, gdzie $(x_0, y_0)$ jest ustalonym polem startowym drona. Rozmiar przestrzeni stanów wynosi $N^2 \cdot (B_{\max}+1) \cdot 2$.
+ \subsection{Akcje}
+
+Zbiór akcji dostępnych dla agenta ma charakter dyskretny i pozwala na sterowanie ruchem oraz interakcję z obiektami w środowisku.
+
+\begin{center}
+\begin{tabular}{p{0.30\textwidth}p{0.60\textwidth}}
+\toprule
+Akcja & Opis \\
+\midrule
+Ruch (góra, dół, lewo, prawo) & Przemieszczenie drona o jedno pole w odpowiednim kierunku \\
+Podniesienie ładunku & Podniesienie ładunku z aktualnego pola, skuteczne tylko na polu z paczką, gdy $L=0$ \\
+Ładowanie baterii & Ustawienie $B = B_{\text{max}}$, skuteczne tylko na polu stacji ładowania \\
+\bottomrule
+\end{tabular}
+\end{center}
+Dostarczenie ładunku nie jest osobną akcją - następuje automatycznie, gdy dron z ładunkiem ($L=1$) wejdzie na pole docelowe. Akcja nieskuteczna (ruch poza granice siatki, podniesienie ładunku poza polem paczki lub przy $L=1$, ładowanie poza stacją) nie zmienia stanu drona i nie zużywa baterii, ale jest karana (patrz funkcja nagrody) i liczy się do limitu kroków.
+\subsection{Funkcja nagrody}
+
+Koszt energetyczny ruchu o jedno pole wynosi
+\begin{equation}
+ e = c_{\text{base}} \cdot \mu_{\text{wiatr}} \cdot \mu_{\text{load}},
+\end{equation}
+gdzie $\mu_{\text{wiatr}}$ to współczynnik trudności pola, na które wchodzi dron ($\mu_{\text{wiatr}} = 1$ dla pól bez wiatru, $\mu_{\text{wiatr}} > 1$ w strefach wiatru), a $\mu_{\text{load}}$ to współczynnik obciążenia ($\mu_{\text{load}} = 1$ dla $L = 0$, $\mu_{\text{load}} = 2$ dla $L = 1$). Parametry dobieramy tak, aby $e$ było liczbą całkowitą. Po ruchu bateria wynosi $B' = B - e$. Podniesienie ładunku nie zużywa baterii, a ładowanie ustawia $B' = B_{\max}$.
+
+Funkcja nagrody została zaprojektowana w taki sposób, aby zachęcać agenta do osiągnięcia celu, jednocześnie minimalizując ryzyko wyczerpania baterii i promując efektywne zarządzanie energią.
+
+\begin{equation}
+ r_t =
+ \begin{cases}
+  R_{\text{success}} & \text{jeśli dron dostarczył ładunek do celu,} \\[2mm]
+  R_{\text{fail}} & \text{jeśli bateria spadła do zera (awaria),} \\[2mm]
+  R_{\text{timeout}} & \text{jeśli przekroczono maksymalną liczbę kroków,} \\[2mm]
+  -e = -c_{\text{base}} \cdot \mu_{\text{wiatr}} \cdot \mu_{\text{load}} & \text{za każdy skuteczny ruch (koszt energetyczny),} \\[2mm]
+  -c_{\text{idle}} & \text{za skuteczne podniesienie ładunku lub ładowanie,} \\[2mm]
+  -c_{\text{inv}} & \text{za akcję nieskuteczną.}
+ \end{cases}
+\end{equation}
+
+Nagrody końcowe zastępują nagrodę za krok. Jeśli w jednym kroku dron wchodzi na pole docelowe z ładunkiem i $B' \ge 0$, dostarczenie ma pierwszeństwo przed awarią (nagroda $R_{\text{success}}$). W pozostałych przypadkach $B' \le 0$ oznacza awarię. Przyjmujemy $R_{\text{success}} > 0$, $R_{\text{fail}} < 0$, $R_{\text{timeout}} \le 0$ oraz $c_{\text{base}}, c_{\text{idle}}, c_{\text{inv}} > 0$.
+\begin{itemize}
+    \item Agent otrzymuje nagrodę dodatnią za pomyślne dostarczenie ładunku do celu,
+    \item Agent otrzymuje karę za wyczerpanie baterii przed ukończeniem misji oraz za przekroczenie maksymalnej liczby kroków w epizodzie,
+    \item Ograniczenie twarde: wyczerpanie baterii w trakcie lotu skutkuje natychmiastową porażką i zakończeniem epizodu,
+    \item Ograniczenie miękkie: każdy ruch jest karany proporcjonalnie do kosztu energetycznego, co zachęca do wyboru krótkich i energooszczędnych tras oraz zniechęca do bezcelowego poruszania się po siatce,
+    \item Ponieważ koszt ruchu z ładunkiem jest dwukrotnie wyższy, agent jest zniechęcany do przechodzenia przez strefy wiatru z ładunkiem. Ładowanie nie jest nagradzane samo w sobie - agent uczy się z niego korzystać, ponieważ pozwala ono uniknąć kary $R_{\text{fail}}$ i dotrzeć do celu.
+\end{itemize}
+
+\subsection{Warunki zakończenia epizodu}
+
+Epizod kończy się w następujących przypadkach:
+\begin{itemize}
+    \item Dron dostarczył ładunek do celu (sukces),
+    \item Bateria drona spadła do zera (porażka),
+    \item Przekroczono maksymalną liczbę kroków w epizodzie (porażka).
+\end{itemize}
+    
+\subsection{Założenia i ograniczenia środowiska}
+
+W celu uproszczenia problemu przyjęto następujące założenia i ograniczenia:
+\begin{itemize}
+    \item Środowisko jest w pełni obserwowalne dla agenta,
+    \item Środowisko jest statyczne, nie zmienia się w czasie,
+    \item Dron porusza się w dyskretnej siatce 2D, a jego ruch jest ograniczony do czterech kierunków (góra, dół, lewo, prawo),
+    \item Dron nie może poruszać się poza granice siatki,
+\item Akcja ładowania na stacji w pełni regeneruje baterię (do $B_{\max}$) w jednym kroku.
+
+\end{itemize}
+%%%%
+\section{Implementacja}
+
+\subsection{Struktura repozytorium}
+
+Należy krótko opisać strukturę repozytorium i najważniejsze pliki projektu.
+
+\begin{verbatim}
+repozytorium/
+|-- src/
+|-- experiments/
+|-- report/
+|-- results/
+`-- README.md
+\end{verbatim}
+
+\subsection{Środowisko}
+
+Należy opisać sposób implementacji środowiska, w szczególności funkcje inicjalizacji epizodu oraz wykonania kroku środowiska.
+
+\subsection{Agent bazowy}
+
+Należy opisać agenta losowego, heurystycznego albo inny baseline wykorzystany do porównania z agentem uczącym się.
+
+\subsection{Agent uczący się}
+
+Należy opisać zastosowany algorytm RL lub DRL, jego parametry oraz sposób implementacji. W przypadku Q-tab należy opisać reprezentację tablicy wartości. W przypadku DRL należy opisać wejścia modelu, wyjścia modelu, architekturę oraz sposób uczenia.
+
+\section{Plan eksperymentów}
+
+Należy opisać eksperymenty zaplanowane w celu oceny działania agenta.
+
+\begin{center}
+\begin{tabular}{p{0.24\textwidth}p{0.30\textwidth}p{0.30\textwidth}}
+\toprule
+Eksperyment & Co jest zmieniane? & Co jest mierzone? \\
+\midrule
+E1 & Do uzupełnienia & Do uzupełnienia \\
+E2 & Do uzupełnienia & Do uzupełnienia \\
+E3 & Do uzupełnienia & Do uzupełnienia \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+W tej sekcji należy wskazać:
+\begin{itemize}
+    \item liczbę epizodów uczenia,
+    \item liczbę powtórzeń eksperymentu albo uzasadnienie braku powtórzeń,
+    \item parametry uczenia,
+    \item metryki oceny,
+    \item warianty środowiska, map lub funkcji nagrody,
+    \item sposób porównania z agentem bazowym.
+\end{itemize}
+
+\section{Wyniki}
+
+W tej sekcji należy przedstawić wyniki eksperymentów. Wyniki powinny być pokazane w postaci tabel, wykresów lub czytelnych zestawień.
+
+\begin{center}
+\begin{tabular}{p{0.28\textwidth}p{0.20\textwidth}p{0.20\textwidth}p{0.20\textwidth}}
+\toprule
+Wariant & Średni zwrot & Skuteczność & Długość epizodu \\
+\midrule
+Agent bazowy & Do uzupełnienia & Do uzupełnienia & Do uzupełnienia \\
+Agent RL/DRL & Do uzupełnienia & Do uzupełnienia & Do uzupełnienia \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{figure}[h]
+    \centering
+    \fbox{\parbox{0.82\textwidth}{\centering Miejsce na wykres procesu uczenia}}
+    \caption{Przykładowy wykres procesu uczenia agenta.}
+\end{figure}
+
+\section{Analiza i wnioski}
+
+Należy zinterpretować wyniki. W tej części należy odpowiedzieć m.in. na pytania:
+\begin{itemize}
+    \item Czy agent uczący się działa lepiej niż agent bazowy?
+    \item Jak zmieniało się zachowanie agenta w trakcie uczenia?
+    \item Które elementy środowiska były najtrudniejsze?
+    \item Czy funkcja nagrody prowadziła do oczekiwanego zachowania?
+    \item Czy wystąpiły przypadki niepożądanego zachowania agenta?
+    \item Jakie są najważniejsze ograniczenia rozwiązania?
+\end{itemize}
+
+\section{Instrukcja uruchomienia}
+
+Należy opisać sposób uruchomienia projektu od czystego repozytorium. Przykładowo:
+
+\begin{verbatim}
+git clone https://github.com/...
+cd nazwa-repozytorium
+python -m venv .venv
+.venv\Scripts\activate
+pip install -r requirements.txt
+python src/main.py
+\end{verbatim}
+
+Należy również wskazać, jak odtworzyć eksperymenty oraz gdzie zapisywane są wyniki.
+
+\section{Wsparcie AI}
+
+W tej sekcji należy obowiązkowo opisać wykorzystanie narzędzi sztucznej inteligencji. Jeżeli student nie korzystał z takich narzędzi, należy wpisać jednoznaczną informację, że nie korzystano ze wsparcia AI.
+
+\begin{center}
+\begin{tabular}{p{0.13\textwidth}p{0.19\textwidth}p{0.21\textwidth}p{0.27\textwidth}}
+\toprule
+Data & Narzędzie/model & Cel użycia & Transkrypt / link / zakres \\
+\midrule
+Do uzupełnienia & Do uzupełnienia & Do uzupełnienia & Do uzupełnienia \\
+Do uzupełnienia & Do uzupełnienia & Do uzupełnienia & Do uzupełnienia \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Należy zapisać transkrypty rozmów z modelami AI wraz z datą oraz nazwą modelu. Jeżeli rozmowa odbywała się poza narzędziami programistycznymi, należy dodatkowo udostępnić całą rozmowę poprzez link, o ile użyte narzędzie umożliwia takie udostępnienie.
+
+Student powinien także wyjaśnić, które elementy wygenerowane lub zasugerowane przez AI zostały samodzielnie sprawdzone, zmodyfikowane albo odrzucone.
+
+\section{Literatura}
+
+W tej sekcji należy wskazać wykorzystane źródła: książki, artykuły naukowe, dokumentację bibliotek, materiały wykładowe oraz inne źródła użyte podczas pracy nad projektem.
+
+\begin{thebibliography}{9}
+\bibitem{sutton_barto}
+R. S. Sutton, A. G. Barto, \textit{Reinforcement Learning: An Introduction}, 2nd ed., MIT Press, 2018.
+\end{thebibliography}
+
+\end{document}

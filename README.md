@@ -1,1 +1,2 @@
-# Uczenie-ze-wzmocnieniem---Projekt
+# Projekt na przedmiot uczenie ze wzmocnieniem
+
